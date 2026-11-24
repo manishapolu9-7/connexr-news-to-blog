@@ -93,30 +93,88 @@ RETURN THESE EDITORIAL ASSETS
 10. LinkedIn promotional caption.
 
 This is a writing brief. Research and verify the source before publishing; do not present the news hook as independently verified unless you have checked the original reporting."""
+
 def generate_ideas(row,service,industry,n):
- cfg=SERVICES[service]; words=[w for w in re.findall(r"[a-zA-Z0-9]+",row["title"].lower()) if len(w)>4]
- templates=[
- f"What {row['title'].rstrip('.')} means for {industry} organizations",
- f"How {industry} enterprises can respond to {row['title'].lower()}",
- f"{service}: practical lessons for {industry} technology leaders",
- f"From industry news to action: a {service.lower()} roadmap",
- f"What CIOs and CTOs should know about {row['title'].lower()}",
- f"The business impact of {row['title'].lower()} on {industry}",
- f"How to evaluate {service.lower()} opportunities in {industry}",
- f"{service} implementation: risks, readiness and best practices",
- f"Five questions {industry} leaders should ask about {row['title'].lower()}",
- f"A practical guide to {service.lower()} for enterprise decision-makers"
- ]
+ cfg=SERVICES[service]
+ industry_label = industry if industry and industry != "Cross-industry" else "enterprise"
+ signal_text = (str(row.get("title","")) + " " + str(row.get("summary",""))).lower()
+ stop = {"about","after","before","could","their","there","these","those","which","while","where","would","should","report","reports","latest","says","said","from","with","into","over","under","across","will","have","been","more","than","business","industry","enterprise"}
+ signal_words = [w for w in re.findall(r"[a-z0-9]+", signal_text) if len(w)>4 and w not in stop]
+ signal_terms = list(dict.fromkeys(signal_words))[:5]
+ angle_bank = {
+ "Custom AI Solutions": [
+ ("From AI pilots to production: the operating decisions enterprises must get right","pilot-to-production strategy","AI implementation roadmap"),
+ ("Where should enterprises deploy AI agents first? A use-case prioritisation framework","AI agent use-case prioritisation","AI agent development"),
+ ("Build, buy or partner? A decision framework for enterprise AI solutions","enterprise AI build vs buy","custom AI development"),
+ ("The enterprise AI readiness gap: data, workflows, skills and governance","enterprise AI readiness","enterprise generative AI"),
+ ("How to measure business value from custom AI beyond model accuracy","AI business value measurement","AI workflow automation"),
+ ("Human oversight in AI-powered workflows: designing the right control points","human-in-the-loop AI","enterprise AI governance"),
+ ("What it takes to integrate generative AI into core business processes","generative AI integration","generative AI for business"),
+ ("A practical risk checklist before deploying AI agents at scale","AI agent risk management","AI agent development"),
+ ("How industry-specific AI workflows can improve decision-making","industry AI use cases","custom AI solutions"),
+ ("The hidden costs of scaling enterprise AI—and how to plan for them","enterprise AI total cost","AI implementation")],
+ "AIOps & IT Operations": [
+ ("Beyond alert volume: how to build an incident response model that reduces business disruption","AI incident response","AIOps solutions"),
+ ("Predictive versus reactive IT operations: what should enterprises measure?","predictive IT operations","AI for IT operations"),
+ ("How to reduce alert fatigue without losing critical signals","IT alert fatigue","observability and monitoring"),
+ ("A CIO's guide to measuring AIOps value: MTTR, availability and operational toil","AIOps ROI metrics","IT operations automation"),
+ ("Connecting observability data to faster, better operational decisions","enterprise observability strategy","AIOps platform"),
+ ("The case for automating repetitive IT work—and where human approval still matters","IT operations automation","AI incident management"),
+ ("Designing resilient IT operations for complex hybrid environments","hybrid IT resilience","predictive IT operations"),
+ ("From incident detection to prevention: a maturity roadmap for IT teams","incident prevention maturity","AIOps solutions"),
+ ("How to evaluate an AIOps initiative before investing in a platform","AIOps evaluation framework","AIOps platform"),
+ ("Operationalising AI in IT: governance, accountability and safe automation","AI operations governance","AI for IT operations")],
+ "Digital & AI Transformation": [
+ ("Why enterprise AI transformation is an operating-model challenge, not just a technology project","AI transformation operating model","enterprise AI transformation"),
+ ("How to move from isolated AI experiments to an enterprise-wide roadmap","AI pilot to scale","AI transformation roadmap"),
+ ("The executive scorecard for measuring digital transformation outcomes","digital transformation KPIs","digital transformation strategy"),
+ ("Building an AI adoption roadmap that connects business priorities to delivery","AI adoption roadmap","AI adoption strategy"),
+ ("Who owns AI governance? Defining accountability across business and technology teams","enterprise AI accountability","responsible AI governance"),
+ ("How to redesign business processes before introducing enterprise AI","AI process redesign","enterprise AI implementation"),
+ ("Managing workforce change during enterprise AI adoption","AI change management","AI adoption strategy"),
+ ("A practical maturity model for assessing enterprise AI readiness","enterprise AI maturity","enterprise AI transformation"),
+ ("Why transformation programmes stall—and how leaders can restore momentum","transformation execution risks","digital transformation strategy"),
+ ("Turning AI strategy into measurable business value: a 90-day planning framework","AI value realisation","AI transformation roadmap")],
+ "Cloud & AI Infrastructure": [
+ ("The enterprise AI infrastructure checklist: compute, data, security and operations","enterprise AI infrastructure planning","AI infrastructure"),
+ ("How to control inference costs as generative AI usage grows","generative AI inference costs","cloud cost optimization"),
+ ("GPU capacity planning: questions technology leaders should ask before scaling AI","GPU capacity planning","GPU infrastructure for AI"),
+ ("Choosing between public cloud, private infrastructure and hybrid AI environments","enterprise AI cloud architecture","AI cloud infrastructure"),
+ ("Why FinOps needs to evolve for AI workloads","AI FinOps","cloud cost optimization"),
+ ("Building reliable MLOps foundations for models in production","MLOps production readiness","MLOps infrastructure"),
+ ("Data residency, security and resilience in enterprise AI infrastructure","AI infrastructure governance","enterprise cloud modernization"),
+ ("How to assess cloud readiness before moving AI workloads into production","AI cloud readiness","AI cloud infrastructure"),
+ ("Balancing performance, availability and cost in AI platform architecture","AI platform performance","AI infrastructure"),
+ ("A practical framework for modernising infrastructure for AI at scale","AI infrastructure modernization","enterprise cloud modernization")],
+ "Enterprise Systems Modernization": [
+ ("How to modernise legacy systems without disrupting critical business operations","legacy modernization risk","legacy system modernization"),
+ ("The business case for application modernization: cost, agility and resilience","application modernization business case","enterprise systems modernization"),
+ ("API-led integration: connecting legacy platforms to modern digital services","enterprise API integration","enterprise application integration"),
+ ("A phased roadmap for reducing technical debt across enterprise applications","enterprise technical debt","modernizing legacy applications"),
+ ("ERP modernization readiness: the questions business and IT leaders must answer","ERP modernization readiness","ERP modernization strategy"),
+ ("Cloud migration or re-platforming? A decision framework for legacy workloads","legacy cloud migration strategy","enterprise systems modernization"),
+ ("How to protect data quality and continuity during system modernization","modernization data migration","enterprise application integration"),
+ ("The role of architecture governance in large-scale modernization programmes","enterprise architecture governance","legacy system modernization"),
+ ("When should enterprises replace, refactor or integrate a legacy application?","legacy application strategy","modernizing legacy applications"),
+ ("Measuring modernization success beyond project delivery and go-live","modernization outcome metrics","ERP modernization strategy")]
+ }
+ selected=angle_bank[service]
  ideas=[]
- for i in range(n):
-  topic=templates[i%len(templates)]; primary=cfg["keywords"][i%len(cfg["keywords"])]
-  second=list(dict.fromkeys(cfg["keywords"][(i+j+1)%len(cfg["keywords"])] for j in range(4)))
-  if words: second += [f"{words[0]} {primary}"]
-  second=list(dict.fromkeys(second))[:8]
-  angle=cfg["angles"][i%len(cfg["angles"])]
+ for i in range(min(n,len(selected))):
+  topic,angle,keyword_focus=selected[i]
+  primary=cfg["keywords"][i%len(cfg["keywords"])]
+  secondary=list(dict.fromkeys([cfg["keywords"][(i+j+1)%len(cfg["keywords"])] for j in range(4)]+[f"{industry_label} {primary}",f"{keyword_focus} for {industry_label}"]))[:8]
   question=cfg["questions"][i%len(cfg["questions"])]
-  prompt=build_prompt(topic,service,industry,primary,second,angle,question,row["title"],row["link"])
-  ideas.append(dict(topic=topic,service=service,industry=industry,primary=primary,secondary=second,intent="Informational" if i%3 else "Commercial investigation",angle=angle,question=question,prompt=prompt,priority="High" if row["score"]>=10 and i<3 else "Medium",source=row["link"]))
+  intent="Informational" if i not in (2,6) else "Commercial investigation"
+  connection=("Use the news item as a timely signal, not as a headline to rewrite. Explore what the development may mean "
+              f"for {industry_label} organisations, what decision or operational problem it highlights, and what practical "
+              f"framework leaders can use. News context terms to investigate: {', '.join(signal_terms[:5]) or service}.")
+  prompt=build_prompt(topic,service,industry_label,primary,secondary,angle,question,row["title"],row["link"])
+  prompt += "\\n\\nEDITORIAL DIFFERENTIATION\\n" + connection + "\\nThe article must answer a broader business or technology question, not summarise or paraphrase the news story."
+  priority="High" if row["score"]>=10 and i<3 else ("Medium" if i<7 else "Explore")
+  ideas.append(dict(topic=topic,service=service,industry=industry_label,primary=primary,secondary=secondary,
+                    intent=intent,angle=angle,question=question,prompt=prompt,priority=priority,
+                    source=row["link"],news_connection=connection))
  return ideas
 def save_ideas(story_id,ideas):
  c=conn()
@@ -127,7 +185,7 @@ def save_ideas(story_id,ideas):
 
 st.title("💡 ConnexR News Ideation Studio")
 st.caption("Latest news → blog topic ideas → keyword clusters → SEO/GEO/AEO brief → ready-to-copy writing prompt.")
-st.info("This application does not write blogs. It prepares the ideation, keyword research suggestions and a complete prompt you can paste into ChatGPT Free or another writing tool.")
+st.info("This application does not write blogs. It creates independent editorial angles, keyword clusters and ready-to-copy prompts. Topics explore business implications and practical decisions—not rewrites of news headlines.")
 with st.sidebar:
  st.subheader("ConnexR solution mapping")
  st.caption("Custom AI • AIOps • Digital & AI Transformation • Cloud & AI Infrastructure • Systems Modernization")
@@ -169,7 +227,8 @@ with tab2:
     st.markdown(f"**Primary keyword:** {x['primary']}")
     st.markdown("**Secondary keyword ideas:** "+", ".join(x["secondary"]))
     st.markdown(f"**Search intent:** {x['intent']}")
-    st.markdown(f"**SEO/GEO angle:** {x['angle']}")
+    st.markdown(f"**Editorial angle:** {x['angle']}")
+    st.markdown(f"**Why this is different from the news headline:** {x.get('news_connection', 'Explore the broader business implications of this news development.')}")
     st.markdown(f"**AEO question:** {x['question']}")
     st.markdown(f"**News source:** [Open source]({x['source']})")
     st.text_area("Ready-to-copy blog prompt",x["prompt"],height=420,key=f"prompt_{i}")

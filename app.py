@@ -1,3 +1,4 @@
+import pathlib
 import re, json, sqlite3, hashlib
 from datetime import datetime, timezone
 from urllib.parse import quote_plus

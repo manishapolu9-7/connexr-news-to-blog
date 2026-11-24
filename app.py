@@ -8,6 +8,7 @@ from urllib.parse import quote_plus
 from pathlib import Path
 
 import feedparser
+import requests
 import pandas as pd
 import streamlit as st
 from bs4 import BeautifulSoup
@@ -70,6 +71,64 @@ SERVICE_MAP = {
                             "How should CIOs measure modernization success?"],
     },
 }
+
+
+SOLUTION_RELATED_TERMS = {
+    "Custom AI Solutions": ["enterprise AI", "AI agents", "generative AI", "LLM integration", "AI workflow automation",
+                            "AI model deployment", "AI governance", "AI evaluation", "responsible AI", "RAG implementation"],
+    "AIOps & IT Operations": ["AIOps platform", "IT operations automation", "observability", "incident management",
+                             "predictive IT operations", "event correlation", "root cause analysis", "MTTR reduction",
+                             "self-healing infrastructure", "IT service reliability"],
+    "Digital & AI Transformation": ["enterprise AI strategy", "AI adoption roadmap", "digital transformation",
+                                   "AI operating model", "AI governance framework", "business process automation",
+                                   "AI readiness assessment", "change management", "AI ROI", "responsible AI"],
+    "Cloud & AI Infrastructure": ["AI infrastructure", "GPU cloud", "cloud modernization", "MLOps",
+                                  "AI inference optimization", "cloud cost optimization", "hybrid cloud",
+                                  "data center modernization", "AI platform engineering", "cloud security"],
+    "Enterprise Systems Modernization": ["legacy modernization", "ERP modernization", "application modernization",
+                                         "API integration", "enterprise integration", "technical debt",
+                                         "cloud migration", "data migration", "microservices modernization",
+                                         "enterprise architecture"]
+}
+
+def fetch_related_keywords(seed_terms, service, max_suggestions=30):
+    """Fetch public autocomplete suggestions without an API key; fallback to curated solution vocabulary."""
+    seeds = [x.strip() for x in seed_terms if x and x.strip()]
+    curated = SOLUTION_RELATED_TERMS.get(service, [])
+    queries = []
+    for seed in seeds[:8]:
+        queries.extend([seed, f"{seed} enterprise", f"{seed} for business", f"{seed} implementation"])
+    # Always add the selected ConnexR solution vocabulary so custom seeds are enriched in the right context.
+    queries.extend(curated[:8])
+    suggestions = []
+    seen = set()
+    for query in queries:
+        try:
+            response = requests.get(
+                "https://suggestqueries.google.com/complete/search",
+                params={"client": "firefox", "q": query},
+                headers={"User-Agent": "Mozilla/5.0"},
+                timeout=5
+            )
+            response.raise_for_status()
+            payload = response.json()
+            candidates = payload[1] if isinstance(payload, list) and len(payload) > 1 else []
+            for candidate in candidates:
+                term = str(candidate).strip()
+                key = term.casefold()
+                if term and key not in seen and len(term) < 110:
+                    seen.add(key)
+                    suggestions.append(term)
+        except Exception:
+            continue
+        if len(suggestions) >= max_suggestions:
+            break
+    # Keep curated related terms even if autocomplete is unavailable.
+    for term in curated:
+        if term.casefold() not in seen:
+            seen.add(term.casefold())
+            suggestions.append(term)
+    return suggestions[:max_suggestions]
 
 INDUSTRIES = [
     "Cross-industry", "Healthcare", "FinTech", "Banking & Financial Services", "Insurance",
@@ -146,12 +205,15 @@ def score_story(title, summary, service):
     score = min(100, sum(detail.values()) * 5 + (10 if service else 0))
     return score, detail
 
-def fetch_news(days, services, industries, per_query=15):
+def fetch_news(days, services, industries, per_query=15, custom_keywords=None):
     found = {}
     queries = []
     for service in services:
         for q in SERVICE_MAP[service]["queries"]:
             queries.append((q, service, "Cross-industry"))
+    for custom in (custom_keywords or []):
+        if custom.strip():
+            queries.append((f'"{custom.strip()}" AND (enterprise OR business OR technology OR AI)', "", "Cross-industry"))
     for industry in industries:
         if industry != "Cross-industry":
             queries.append((f'"{industry}" AND (AI OR cloud OR automation OR modernization OR cybersecurity)', "", industry))
@@ -231,8 +293,10 @@ def analyse_signal(row, service):
         hits = [("Enterprise technology strategy", tokens(text)[:4])]
     return hits
 
-def create_ideas(row, service, industry, count):
+def create_ideas(row, service, industry, count, custom_keywords=None, related_keywords=None):
     cfg = SERVICE_MAP[service]
+    custom_keywords = [x.strip() for x in (custom_keywords or []) if x and x.strip()]
+    related_keywords = [x.strip() for x in (related_keywords or []) if x and x.strip()]
     industry_name = industry if industry != "Cross-industry" else "large and mid-sized enterprises"
     signals = analyse_signal(row, service)
     signal_labels = [x[0] for x in signals]
@@ -262,11 +326,15 @@ def create_ideas(row, service, industry, count):
 
     out = []
     for i, (family, topic, angle) in enumerate(frameworks[:count]):
-        primary = cfg["keywords"][i % len(cfg["keywords"])]
+        # Prefer a user-supplied keyword as the primary target when available.
+        primary_pool = custom_keywords + cfg["keywords"]
+        primary = primary_pool[i % len(primary_pool)]
         problem = cfg["problems"][i % len(cfg["problems"])]
-        secondary = list(dict.fromkeys([
-            cfg["keywords"][(i+j+1) % len(cfg["keywords"])] for j in range(4)
-        ] + [f"{industry_name} {primary}", f"{problem} in enterprise {service.lower()}"]))[:8]
+        related_pool = related_keywords + cfg["keywords"]
+        secondary = list(dict.fromkeys(
+            [term for term in related_pool if term.casefold() != primary.casefold()]
+            + [f"{industry_name} {primary}", f"{problem} in enterprise {service.lower()}"]
+        ))[:10]
         question = cfg["buyer_questions"][i % len(cfg["buyer_questions"])]
         intent = "Commercial investigation" if family in ["Build vs buy", "Cost and value guide"] else "Informational"
         rationale = (f"This is a {family.lower()} angle, not a rewrite of the news headline. "
@@ -366,12 +434,19 @@ with tab1:
     services = st.multiselect("ConnexR solution areas", list(SERVICE_MAP.keys()), default=list(SERVICE_MAP.keys()))
     industries = st.multiselect("Industries", INDUSTRIES, default=["Cross-industry", "Healthcare", "Banking & Financial Services", "Manufacturing", "Technology & Software"])
     per_query = st.slider("Maximum stories per search", 5, 25, 15)
+    custom_keyword_text = st.text_area(
+        "Add your own keywords (comma-separated)",
+        placeholder="e.g. enterprise AI agents, AI governance, cloud modernization, data integration",
+        help="These keywords are added to news discovery and later used as keyword seeds for topic recommendations."
+    )
+    custom_keywords = [x.strip() for x in custom_keyword_text.split(",") if x.strip()]
+    st.session_state["custom_keywords"] = custom_keywords
     if st.button("🔎 Fetch latest news", type="primary", use_container_width=True):
         if not services and len(industries) <= 1:
             st.warning("Select at least one solution area or industry.")
         else:
             with st.spinner("Searching news feeds and checking publication dates..."):
-                items = fetch_news(days, services, industries, per_query)
+                items = fetch_news(days, services, industries, per_query, custom_keywords)
                 save_stories(items)
                 st.session_state["last_fetch_count"] = len(items)
                 st.session_state["active_days"] = days
@@ -426,13 +501,32 @@ with tab2:
             industry_default = row["industry"] if row["industry"] in INDUSTRIES else "Cross-industry"
             industry = st.selectbox("Target industry", INDUSTRIES, index=INDUSTRIES.index(industry_default))
         count = st.slider("Number of recommendations", 5, 10, 8)
+        user_seed_text = st.text_area(
+            "Your keywords to include (comma-separated)",
+            value=", ".join(st.session_state.get("custom_keywords", [])),
+            placeholder="Add exact keywords, product terms, service phrases or target queries",
+            help="Your keywords are included in the news context and keyword clusters. You can edit them for this story."
+        )
+        user_seed_keywords = [x.strip() for x in user_seed_text.split(",") if x.strip()]
+        if st.button("Find related keywords for this solution", type="secondary"):
+            seeds = user_seed_keywords + SERVICE_MAP[service]["keywords"][:4]
+            with st.spinner("Finding related search suggestions..."):
+                related = fetch_related_keywords(seeds, service)
+            st.session_state["related_keywords"] = related
+            st.success(f"Collected {len(related)} related keyword suggestions.")
+        related_keywords = st.session_state.get("related_keywords", [])
+        if related_keywords:
+            st.markdown("**Related keyword suggestions — edit or remove before using**")
+            related_text = st.text_area("Related keywords", value=", ".join(related_keywords), height=110)
+            related_keywords = [x.strip() for x in related_text.split(",") if x.strip()]
+            st.session_state["related_keywords"] = related_keywords
         st.markdown("**News signal being analysed**")
         st.write(row["title"])
         st.caption(row["summary"][:650])
         detected = analyse_signal(row, service)
         st.markdown("**Detected signals:** " + " · ".join(x[0] for x in detected))
         if st.button("✨ Generate strategic recommendations", type="primary", use_container_width=True):
-            ideas = create_ideas(row, service, industry, count)
+            ideas = create_ideas(row, service, industry, count, user_seed_keywords, related_keywords)
             save_ideas(row["id"], ideas)
             st.session_state["current_ideas"] = ideas
         ideas = st.session_state.get("current_ideas", [])
@@ -472,4 +566,4 @@ with tab3:
         st.download_button("Export saved recommendations (CSV)", saved.to_csv(index=False).encode("utf-8"), "connexr_saved_recommendations.csv", "text/csv")
 
 st.divider()
-st.caption("Date filtering uses the published timestamp from RSS entries and excludes undated stories. Some feeds may publish timestamps in a different timezone or omit dates. Relevance scores are heuristic, not an AI judgement. Keyword suggestions are ideas, not verified search-volume or difficulty metrics. Validate demand in Google Keyword Planner/Search Console before prioritising. GEO/AEO guidance improves clarity and answerability but cannot guarantee AI citations or rankings.")
+st.caption("Date filtering uses the published timestamp from RSS entries and excludes undated stories. Some feeds may publish timestamps in a different timezone or omit dates. Relevance scores are heuristic, not an AI judgement. Related keyword suggestions use public autocomplete where available plus ConnexR solution vocabularies; they are not verified search-volume or difficulty metrics. Validate demand in Google Keyword Planner/Search Console before prioritising. GEO/AEO guidance improves clarity and answerability but cannot guarantee AI citations or rankings.")
